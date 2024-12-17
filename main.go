@@ -8,23 +8,24 @@ import (
 )
 
 type queueGeneric struct {
-	msgChannel chan string
 }
 
-func NewQueue(msg chan string) *queueGeneric {
-	return &queueGeneric{
-		msgChannel: msg,
-	}
+func NewQueue() *queueGeneric {
+	return &queueGeneric{}
 }
 
-func (q *queueGeneric) startQueue(ctx context.Context) {
-	defer close(q.msgChannel)
+func (q *queueGeneric) startQueue(ctx context.Context, wg *sync.WaitGroup, msg chan string) {
+	defer func() {
+		close(msg)
+		wg.Done()
+	}()
+
 	timeTicker := time.NewTicker(time.Second * 3)
 
 	for {
 		select {
 		case <-timeTicker.C:
-			q.msgChannel <- "enviando mensagem..."
+			msg <- "enviando mensagem..."
 
 		case <-ctx.Done():
 			fmt.Println("finalizando queue...")
@@ -34,19 +35,23 @@ func (q *queueGeneric) startQueue(ctx context.Context) {
 
 }
 
+var msg = make(chan string, 10)
+
 func main() {
 
-	queue := NewQueue(make(chan string, 10))
+	queue := NewQueue()
 
 	ctx := context.TODO()
+	ctx, cancel := context.WithTimeout(ctx, time.Second*8)
+	defer cancel()
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
-	go queue.startQueue(ctx)
+	go queue.startQueue(ctx, &wg, msg)
 
 	for workerCount := 0; workerCount < 10; workerCount++ {
 		wg.Add(1)
-		go worker(ctx, workerCount, &wg, queue.msgChannel)
+		go worker(ctx, workerCount, &wg, msg)
 	}
 
 	wg.Wait()
